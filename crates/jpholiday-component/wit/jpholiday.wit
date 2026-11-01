@@ -1,0 +1,53 @@
+// WIT パッケージのバージョンはインターフェースのバージョン。
+// 関数や型を変更したときに手動で上げる（リリースタグからは自動では変わらない）。
+package lalcs:jpholiday@0.1.0;
+
+/// 日本の国民の祝日（内閣府の公表データに準拠）を判定する関数群。
+///
+/// 2027 年までの祝日は公式発表に基づいて動作確認済み。それ以降も取得できるが、
+/// 正式な公表がないため正確性は保証されない。
+interface holidays {
+    /// 暦上の 1 日（先発グレゴリオ暦）。
+    record date {
+        year: s32,
+        /// 1〜12
+        month: u8,
+        /// 1〜31
+        day: u8,
+    }
+
+    /// 1 件の祝日。
+    record holiday {
+        date: date,
+        /// 祝日名（例: "元日"、"元日 振替休日"、"国民の休日"）
+        name: string,
+    }
+
+    /// 日付に関するエラー。
+    variant date-error {
+        /// 実在しない日付（例: 2 月 30 日）が指定された。
+        invalid-date(date),
+    }
+
+    /// その日に該当するすべての祝日を返す（祝日でなければ空）。
+    holidays: func(date: date) -> result<list<holiday>, date-error>;
+
+    /// その日が祝日かどうかを返す。
+    is-holiday: func(date: date) -> result<bool, date-error>;
+
+    /// その日の祝日名を返す（祝日でなければ none）。
+    holiday-name: func(date: date) -> result<option<string>, date-error>;
+
+    /// その年のすべての祝日を日付順に返す。
+    year-holidays: func(year: s32) -> list<holiday>;
+
+    /// その月のすべての祝日を日付順に返す。month が 1〜12 の範囲外なら空を返す。
+    month-holidays: func(year: s32, month: u8) -> list<holiday>;
+
+    /// start〜end（両端を含む）のすべての祝日を日付順に返す。start > end なら空を返す。
+    between: func(start: date, end: date) -> result<list<holiday>, date-error>;
+}
+
+world jpholiday {
+    export holidays;
+}

@@ -1,0 +1,181 @@
+name: Release
+
+# v1.2.3 形式のタグを push すると、WASI 版（CLI / Component）とネイティブ版の CLI をビルドし、
+# SHA256SUMS とともに GitHub Release に添付する。
+on:
+  push:
+    tags:
+      - 'v*'
+
+# ビルドジョブはリポジトリへ書き込まない。Release を作るジョブだけ contents: write を付与する。
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Derive version from tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      # タグ v0.1.0 → バージョン 0.1.0。SemVer 以外のタグは拒否する。
+      - id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+          SEMVER='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          if ! printf '%s\n' "${VERSION}" | grep -Eq "${SEMVER}"; then
+            echo "::error::Tag '${TAG}' is not a valid SemVer version (expected e.g. v1.2.3)"
+            exit 1
+          fi
+          echo "Tag ${TAG} -> version ${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+  wasm:
+    name: Build WASI (CLI + Component)
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1, wasm32-wasip2
+      # リリース用のビルドではキャッシュ汚染（cache poisoning）の経路を作らないため、キャッシュを使わない。
+      - name: Inject version
+        run: scripts/set-version.sh "$VERSION"
+      - name: Unit tests
+        run: cargo test --locked
+      - name: Build CLI (wasm32-wasip1)
+        run: cargo build --locked --release -p jpholiday-cli --target wasm32-wasip1
+      - name: Build component (wasm32-wasip2)
+        run: cargo build --locked --release -p jpholiday-component --target wasm32-wasip2
+      - name: Component tests (wasmtime)
+        run: cargo test --locked -p component-tests
+      - name: Install wasmtime
+        uses: bytecodealliance/actions/wasmtime/setup@v1
+      - name: Smoke test CLI (wasmtime)
+        run: scripts/smoke-test.sh wasmtime run target/wasm32-wasip1/release/jpholiday.wasm
+      - name: Package
+        run: |
+          mkdir dist
+          cp target/wasm32-wasip1/release/jpholiday.wasm "dist/jpholiday-v${VERSION}-wasm32-wasip1.wasm"
+          cp target/wasm32-wasip2/release/jpholiday_component.wasm "dist/jpholiday-component-v${VERSION}-wasm32-wasip2.wasm"
+          ls -l dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-wasm
+          path: dist/*
+          if-no-files-found: error
+
+  native:
+    name: Build native (${{ matrix.target }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux は musl で静的リンクし、glibc のバージョンに依存しないバイナリにする。
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            smoke: true
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-24.04-arm
+            smoke: true
+          # Intel Mac 向けは Apple Silicon の runner からクロスビルドする（実行テストは省略）。
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            smoke: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            smoke: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            smoke: true
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TARGET: ${{ matrix.target }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Inject version
+        run: scripts/set-version.sh "$VERSION"
+      - name: Build CLI
+        # Windows は VC++ ランタイム（vcruntime140.dll）がない環境でも動くよう CRT を静的リンクする。
+        env:
+          RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
+        run: cargo build --locked --release -p jpholiday-cli --target "$TARGET"
+      - name: Smoke test CLI
+        if: matrix.smoke
+        run: scripts/smoke-test.sh "target/${TARGET}/release/jpholiday${{ runner.os == 'Windows' && '.exe' || '' }}"
+      - name: Package
+        run: |
+          name="jpholiday-v${VERSION}-${TARGET}"
+          mkdir -p "staging/${name}" dist
+          cp README.md LICENSE "staging/${name}/"
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            cp "target/${TARGET}/release/jpholiday.exe" "staging/${name}/"
+            (cd staging && 7z a -tzip "../dist/${name}.zip" "${name}")
+          else
+            cp "target/${TARGET}/release/jpholiday" "staging/${name}/"
+            tar -C staging -czf "dist/${name}.tar.gz" "${name}"
+          fi
+          ls -l dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: [version, wasm, native]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        run: |
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      # サードパーティ製 Action ではなく、runner に入っている gh で Release を作成する。
+      # バージョンにプレリリース識別子（例: 1.0.0-rc.1）があればプレリリースとして公開する。
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          prerelease=()
+          case "$VERSION" in
+            *-*) prerelease=(--prerelease) ;;
+          esac
+          gh release create "$TAG" dist/* \
+            --verify-tag \
+            --title "$TAG" \
+            --generate-notes \
+            "${prerelease[@]}"

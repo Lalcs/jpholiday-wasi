@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  native:
+    name: Native (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Unit tests
+        run: cargo test --locked
+      - name: Build CLI
+        run: cargo build --locked --release -p jpholiday-cli
+      - name: Smoke test CLI
+        run: scripts/smoke-test.sh "target/release/jpholiday${{ runner.os == 'Windows' && '.exe' || '' }}"
+
+  wasm:
+    name: WASI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1, wasm32-wasip2
+      - uses: Swatinem/rust-cache@v2
+      - name: Build CLI (wasm32-wasip1)
+        run: cargo build --locked --release -p jpholiday-cli --target wasm32-wasip1
+      - name: Build component (wasm32-wasip2)
+        run: cargo build --locked --release -p jpholiday-component --target wasm32-wasip2
+      - name: Component tests (wasmtime)
+        run: cargo test --locked -p component-tests
+      - name: Install wasmtime
+        uses: bytecodealliance/actions/wasmtime/setup@v1
+      - name: Smoke test CLI (wasmtime)
+        run: scripts/smoke-test.sh wasmtime run target/wasm32-wasip1/release/jpholiday.wasm
+
+  msrv:
+    name: MSRV (1.96)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@1.96
+        with:
+          targets: wasm32-wasip1, wasm32-wasip2
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (native)
+        run: cargo build --locked
+      - name: Build CLI (wasm32-wasip1)
+        run: cargo build --locked --release -p jpholiday-cli --target wasm32-wasip1
+      - name: Build component (wasm32-wasip2)
+        run: cargo build --locked --release -p jpholiday-component --target wasm32-wasip2
+
+  lint:
+    name: Format & Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-wasip1, wasm32-wasip2
+      - uses: Swatinem/rust-cache@v2
+      - name: rustfmt
+        run: cargo fmt --all --check
+      - name: clippy (native, all crates)
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: clippy (CLI, wasm32-wasip1)
+        run: cargo clippy --locked -p jpholiday-cli --target wasm32-wasip1 -- -D warnings
+      - name: clippy (component, wasm32-wasip2)
+        run: cargo clippy --locked -p jpholiday-component --target wasm32-wasip2 -- -D warnings
