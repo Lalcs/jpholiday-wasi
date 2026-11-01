@@ -97,6 +97,18 @@ mod tests {
         }
     }
 
+    /// WIT のパッケージバージョンは Cargo のバージョンと常に一致させる
+    /// （リリース時は scripts/set-version.sh が両方をタグの値に書き換える）。
+    #[test]
+    fn wit_package_version_matches_cargo_version() {
+        let wit = include_str!("../wit/jpholiday.wit");
+        let expected = format!("package lalcs:jpholiday@{};", env!("CARGO_PKG_VERSION"));
+        assert!(
+            wit.lines().any(|line| line == expected),
+            "wit/jpholiday.wit に `{expected}` がありません。Cargo.toml と WIT のバージョンを揃えてください。"
+        );
+    }
+
     #[test]
     fn converts_dates_both_ways() {
         let d = date(2024, 2, 29);

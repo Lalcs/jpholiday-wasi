@@ -145,6 +145,9 @@ interface holidays {
 - 実在しない日付（例: 2月30日）は `date-error` の `invalid-date` を返します。
 - `month-holidays` は `month` が 1〜12 の範囲外なら空、`between` は `start > end` なら空を返します（jpholiday クレートと同じ挙動）。
 - 独自の休日を追加する機能（jpholiday クレートの `register` / `unregister`）は、Rust のトレイト実装が前提のため Component では提供していません。
+- WIT のパッケージバージョンはリリースのバージョンと同じです（v0.1.0 なら `lalcs:jpholiday@0.1.0`）。
+  WIT から生成したホストは SemVer 互換のバージョンの Component を読み込めます。
+  たとえば 0.1.0 の WIT で生成した wasmtime のホストは 0.1.1 を読み込めますが、0.2.0 は読み込めません。
 
 ### JavaScript（jco）
 
@@ -235,10 +238,13 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-- Cargo.toml の `version` はタグの値で上書きされるため、手動で更新する必要はありません。
+- Cargo.toml の `version` と WIT のパッケージバージョン（`lalcs:jpholiday@X.Y.Z`）は、
+  どちらもタグの値で上書きされるため、手動で更新する必要はありません。
+  リポジトリ内の両者が一致していることは `cargo test` で検証しています。
 - `v1.0.0-rc.1` のようにプレリリース識別子を含むタグは、プレリリースとして公開されます。
-- WIT のパッケージバージョン（`lalcs:jpholiday@0.1.0`）はインターフェースのバージョンです。
-  タグとは連動しないので、関数や型を変更したときに手動で上げてください。
+- WIT のバージョンが変わると Component のインターフェース名（`lalcs:jpholiday/holidays@X.Y.Z`）も変わります。
+  0.x の間はマイナーバージョンを上げると互換性のない変更として扱われるため、
+  インターフェースを壊さない変更はパッチバージョン（例: v0.1.0 → v0.1.1）でリリースしてください。
 - 祝日データは依存している [jpholiday クレート](https://crates.io/crates/jpholiday) に由来します。
   本体が更新されたら `cargo update -p jpholiday` で取り込んでからリリースしてください。
   `jpholiday --version` で、組み込まれている jpholiday クレートのバージョンを確認できます。

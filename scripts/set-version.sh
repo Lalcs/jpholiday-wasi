@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# ワークスペースのバージョン（Cargo.toml の [workspace.package] version）を書き換える。
-# リリース時にタグ（v1.2.3 → 1.2.3）の値を注入するために使う。
+# ワークスペースのバージョンを書き換える。リリース時にタグ（v1.2.3 → 1.2.3）の値を注入するために使う。
 #
 #   scripts/set-version.sh 1.2.3
+#
+# 書き換える対象:
+#   - Cargo.toml の [workspace.package] version（CLI / Component のバージョン）
+#   - WIT の package 宣言（lalcs:jpholiday@1.2.3）
+#   - Cargo.lock のワークスペースメンバーのバージョン
 #
 # macOS（BSD 系ツール）でも動くよう sed -i ではなく awk を使う。
 set -euo pipefail
@@ -22,7 +26,21 @@ fi
 
 cd "$(dirname "$0")/.."
 
-awk -v version="$version" '
+wit=crates/jpholiday-component/wit/jpholiday.wit
+
+# rewrite <file> <説明> <awk プログラム>: awk の結果でファイルを置き換える。
+# awk プログラムは対象を書き換えたら done = 1 にし、見つからなければ exit 1 する。
+rewrite() {
+  local file=$1 what=$2 program=$3
+  awk -v version="$version" "$program" "$file" > "$file.tmp" || {
+    rm -f "$file.tmp"
+    echo "error: $what not found in $file" >&2
+    exit 1
+  }
+  mv "$file.tmp" "$file"
+}
+
+rewrite Cargo.toml "[workspace.package] version" '
   /^\[/ { section = $0 }
   section == "[workspace.package]" && !done && /^version = "/ {
     print "version = \"" version "\""
@@ -31,12 +49,17 @@ awk -v version="$version" '
   }
   { print }
   END { if (!done) exit 1 }
-' Cargo.toml > Cargo.toml.tmp || {
-  rm -f Cargo.toml.tmp
-  echo "error: [workspace.package] version not found in Cargo.toml" >&2
-  exit 1
-}
-mv Cargo.toml.tmp Cargo.toml
+'
+
+rewrite "$wit" "package declaration (package lalcs:jpholiday@...;)" '
+  !done && /^package lalcs:jpholiday@[^;]*;$/ {
+    print "package lalcs:jpholiday@" version ";"
+    done = 1
+    next
+  }
+  { print }
+  END { if (!done) exit 1 }
+'
 
 # Cargo.lock のワークスペースメンバーのバージョンだけを更新する（依存クレートは固定のまま）。
 cargo update --workspace
@@ -45,7 +68,11 @@ actual=$(cargo metadata --format-version 1 --no-deps |
   grep -o '"name":"jpholiday-cli","version":"[^"]*"' |
   sed 's/.*"version":"\([^"]*\)"/\1/')
 if [ "$actual" != "$version" ]; then
-  echo "error: failed to set version (expected $version, got '$actual')" >&2
+  echo "error: failed to set Cargo version (expected $version, got '$actual')" >&2
+  exit 1
+fi
+if ! grep -qxF "package lalcs:jpholiday@$version;" "$wit"; then
+  echo "error: failed to set WIT package version to $version" >&2
   exit 1
 fi
 echo "version set to $version"

@@ -10,7 +10,8 @@ members = [
 default-members = ["crates/jpholiday-cli", "crates/jpholiday-component"]
 
 [workspace.package]
-# リリース時はタグ（例: v0.1.0）の値でこの行が上書きされる（.github/workflows/release.yml）。
+# リリース時はタグ（例: v0.1.0）の値でこの行と WIT の package 宣言が上書きされる
+# （scripts/set-version.sh）。WIT（crates/jpholiday-component/wit/jpholiday.wit）とは常に一致させること。
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.96"
