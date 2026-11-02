@@ -1,0 +1,12 @@
+[package]
+name = "component-tests"
+description = "ビルド済みの jpholiday Component を wasmtime 上で呼び出す結合テスト（公開しない）。"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dev-dependencies]
+wasmtime = "50"
+wasmtime-wasi = "50"
+jpholiday.workspace = true

@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/jpholiday-cli",
+    "crates/jpholiday-component",
+    "crates/component-tests",
+]
+# `component-tests` はビルド済みの Component（wasm32-wasip2）を必要とし、wasmtime のコンパイルも
+# 重いため、引数なしの `cargo build` / `cargo test` の対象からは外す（`-p component-tests` で明示実行）。
+default-members = ["crates/jpholiday-cli", "crates/jpholiday-component"]
+
+[workspace.package]
+# リリース時はタグ（例: v0.1.0）の値でこの行と WIT の package 宣言が上書きされる
+# （scripts/set-version.sh）。WIT（crates/jpholiday-component/wit/jpholiday.wit）とは常に一致させること。
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT"
+authors = ["Kazuki Hayashi"]
+repository = "https://github.com/Lalcs/jpholiday-wasi"
+homepage = "https://github.com/Lalcs/jpholiday-wasi"
+
+[workspace.dependencies]
+jpholiday = "0.2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

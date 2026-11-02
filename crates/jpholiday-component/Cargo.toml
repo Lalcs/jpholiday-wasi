@@ -1,0 +1,21 @@
+[package]
+name = "jpholiday-component"
+description = "日本の祝日を判定する WebAssembly Component（wasm32-wasip2）。jpholiday クレートを WIT で公開する。"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+readme = "../../README.md"
+publish = false
+
+[lib]
+# cdylib: wasm32-wasip2 でビルドすると Component（.wasm）になる。
+# rlib: 型変換のユニットテストをネイティブで実行するため。
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+jpholiday.workspace = true
+wit-bindgen = { version = "0.63", default-features = false, features = ["macros", "realloc", "std"] }

@@ -1,0 +1,3 @@
+# Windows の runner でもシェルスクリプト等が CRLF に変換されないよう、改行を LF に統一する。
+* text=auto eol=lf
+*.wasm binary
